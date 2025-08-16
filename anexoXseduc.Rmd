@@ -1,0 +1,232 @@
+---
+title: "Análise estatística do Anexo X da Resolução SEDUC nº 93 07/11/24"
+author: "Giovanna Claudino de Almeida Silva"
+date: "`r Sys.Date()`"
+output:
+  pdf_document: default
+  word_document: default
+---
+
+Neste relatório será feito a uma análise estatística do "Anexo X - Tabela de compenentes curriculares versus habilitações aceitas para o exercício de docência por curso", da Resolução SEDUC nº 93 07/11/2024.
+
+Inicialmente, vamos importar os dados referentes só aos itinerários técnicos oferecidos na escola na qual eu estagio, a E.E. Professor Santos Amaro da Cruz. Esses técnicos são: **Administração, Ciência de Dados, Desenvolvimento de Sistemas, e Vendas.**
+
+Os dados foram transformados do formato pdf, que é o formato do Anexo X da Resolução SEDUC nº 93 07/11/2024, para formato xlsx, usando o Google Colab e o Gemini AI.
+
+```{r include=FALSE}
+knitr::opts_chunk$set(
+  fig.width = 12,
+  fig.height = 8,
+  fig.align = "center",
+  dpi = 300,
+  out.width = "100%"
+)
+```
+
+```{r include=FALSE}
+#Bibliotecas que vamos utilizar
+library(readxl)
+library(tidyverse)
+library(dplyr)
+library(tidyr)
+library(stringr)
+library(ggplot2)
+library(forcats)
+library(scales)
+```
+
+```{r}
+
+#adm = Administração, cd = Ciência de Dados, ds = Desenvolvimento de Sistemas, vn = Vendas
+
+adm <- read_excel("C:/Users/gigic/OneDrive/Documentos/técnicos/tabela_administracao.xlsx")
+cd <- read_excel("C:/Users/gigic/OneDrive/Documentos/técnicos/tabela_ciencia_de_dados.xlsx")
+ds <- read_excel("C:/Users/gigic/OneDrive/Documentos/técnicos/tabela_desenvolvimento_sistemas.xlsx")
+vn <- read_excel("C:/Users/gigic/OneDrive/Documentos/técnicos/tabela_vendas.xlsx")
+
+#Visualização das bases de dados para conferir que não houve erros na exportação, e conhecer um pouco mais sobre a base de dados
+
+head(adm)
+head(cd)
+head(ds)
+head(vn)
+```
+
+As quatro planilhas se estruturam da seguinte maneira:
+
+-   Na primeira cédula temos a referência ao itinerário técnico.
+-   Nas colunas temos as disciplinas de cada itinerário.
+-   Nas linhas temos as habilitações aceitas para o exercício de docência por curso.
+
+Para saber se uma habilitação é aceita para ministrar a disciplina, temos uma variável binária, sendo **1** quando é possível ministrar a disciplina com aquela habilitação, e **0** quando não é possível ministrar a disciplina com aquela habilitação.
+
+Agora vamos transformar a base de uma forma que simplifique os cálculos que serão feitos. Ao invés de as colunas serem cada disciplina, vamos tranformá-las em linhas da coluna "disciplinas", e criar algumas novas colunas, que vão indicar se determinada habilitação pode ou não lecionar a disciplina, e e de qual itinerário é determinada disciplina.
+
+```{r}
+processar_planilha <- function(caminho_arquivo) {
+  dados <- read_excel(caminho_arquivo, col_names = TRUE)
+  
+  itinerario <- names(dados)[1]
+  
+  colnames(dados)[1] <- "habilitacao"
+  
+  disciplinas <- names(dados)[-1]
+  
+  dados_long <- dados %>%
+    pivot_longer(
+      cols = all_of(disciplinas),
+      names_to = "disciplina",
+      values_to = "leciona"
+    ) %>%
+    mutate(
+      itinerario = itinerario,
+      leciona = case_when(
+        is.na(leciona) ~ 0,
+        leciona == 1 | leciona == "1" ~ 1,
+        TRUE ~ 0
+      )
+    ) %>%
+    filter(!is.na(habilitacao) & habilitacao != "")
+  
+  return(dados_long)
+}
+
+```
+
+Agora vamos aplicar a função as bases de dados originais. Depois, vamos criar uma coluna que indica se a habilitação é uma licenciatura ou não (incluindo pedagogia na categoria de licenciaturas). Para tal, o código irá verificar se há a palavra "licenciatura" no nome da habilitação. Além disso, será calculado quantas disciplinas cada habilitação está autorizada a ministrar, somando os quatro itinerários técnicos.
+
+```{r}
+adm <- processar_planilha("C:/Users/gigic/OneDrive/Documentos/técnicos/tabela_administracao.xlsx")
+cd  <- processar_planilha("C:/Users/gigic/OneDrive/Documentos/técnicos/tabela_ciencia_de_dados.xlsx")
+ds  <- processar_planilha("C:/Users/gigic/OneDrive/Documentos/técnicos/tabela_desenvolvimento_sistemas.xlsx")
+vn  <- processar_planilha("C:/Users/gigic/OneDrive/Documentos/técnicos/tabela_vendas.xlsx")
+
+dados_completos <- bind_rows(adm, cd, ds, vn) %>%
+  mutate(
+    licenciatura = case_when(
+      str_detect(str_to_lower(habilitacao), "licenciatura") ~ "Sim",
+      str_detect(str_to_lower(habilitacao), "pedagogia") ~ "Sim",
+      TRUE ~ "Não"
+    )
+  )
+
+contagem_por_habilitacao <- dados_completos %>%
+  group_by(habilitacao, licenciatura) %>%
+  summarise(qtd_disciplinas = sum(leciona, na.rm = TRUE), .groups = "drop") %>%
+  arrange(desc(qtd_disciplinas))
+
+```
+
+Neste trecho, filtrei as 30 habilitações que mais podem ministrar disciplinas, considerando todos os itinerários analisados. Também filtrei as 30 habilitações que menos podem ministrar disciplinas — mas que podem ministrar pelo menos uma, excluindo aquelas que não podem ministrar nenhuma disciplina.
+
+```{r}
+top_mais_30 <- contagem_por_habilitacao %>%
+  slice_max(qtd_disciplinas, n = 30)
+
+top_menos_30 <- contagem_por_habilitacao %>%
+  filter(qtd_disciplinas >= 1) %>%
+  slice_min(qtd_disciplinas, n = 30, with_ties = TRUE) #habilitações com pelo menos 1 disciplina que possam ministrar
+
+```
+
+Esse código gera um gráfico mostrando as 30 habilitações que mais podem ministrar disciplinas.
+
+```{r}
+ggplot(top_mais_30, aes(x = reorder(habilitacao, qtd_disciplinas), y = qtd_disciplinas, fill = licenciatura)) +
+  geom_col() +
+  coord_flip() +
+  labs(
+    title = "Top 30 Habilitações que Mais Podem Ministrar Disciplinas",
+    x = "Habilitação",
+    y = "Quantidade de Disciplinas",
+    fill = "Licenciatura"
+  ) +
+  theme_minimal()
+
+```
+
+Esse código gera um gráfico mostrando as 30 habilitações que menos podem ministrar disciplinas, excluindo as que não podem ministrar nada.
+
+```{r}
+ggplot(top_menos_30, aes(x = reorder(habilitacao, qtd_disciplinas), y = qtd_disciplinas, fill = licenciatura)) +
+  geom_col() +
+  coord_flip() +
+  labs(
+    title = "Top 30 Habilitações que Menos Podem Ministrar Disciplinas",
+    x = "Habilitação",
+    y = "Quantidade de Disciplinas",
+    fill = "Licenciatura"
+  ) +
+  theme_minimal()
+
+```
+
+Aqui foi calculado, dentro de cada itinerário, qual é a proporção de disciplinas que podem ser ministradas por habilitações com ou sem licenciatura.
+
+```{r}
+proporcao_ponderada <- dados_completos %>%
+  group_by(itinerario, habilitacao, licenciatura) %>%
+  summarise(total_disciplinas = sum(leciona, na.rm = TRUE), .groups = "drop") %>%
+  group_by(itinerario, licenciatura) %>%
+  summarise(soma_disciplinas = sum(total_disciplinas), .groups = "drop") %>%
+  group_by(itinerario) %>%
+  mutate(
+    proporcao = soma_disciplinas / sum(soma_disciplinas),
+    porcentagem = percent(proporcao, accuracy = 1)
+  )
+
+```
+
+Neste gráfico, vemos o total absoluto de disciplinas que podem ser ministradas por habilitações com ou sem licenciatura, em cada itinerário técnico.
+
+```{r}
+ggplot(proporcao_ponderada, aes(x = itinerario, y = proporcao, fill = licenciatura)) +
+  geom_col(position = "fill") +
+  scale_y_continuous(labels = percent) +
+  labs(
+    title = "Proporção de Disciplinas Ministráveis por Tipo de Habilitação",
+    subtitle = "Comparação entre habilitações com e sem licenciatura, por itinerário técnico",
+    x = "Itinerário Técnico",
+    y = "Proporção de Disciplinas",
+    fill = "Licenciatura"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+Este outro gráfico apresenta o total absoluto de disciplinas que podem ser ministradas por habilitações com ou sem licenciatura, em cada itinerário técnico.
+
+```{r}
+total_por_tipo <- dados_completos %>%
+  group_by(itinerario, licenciatura) %>%
+  summarise(total_disciplinas = sum(leciona, na.rm = TRUE), .groups = "drop")
+
+ggplot(total_por_tipo, aes(x = itinerario, y = total_disciplinas, fill = licenciatura)) +
+  geom_col(position = "dodge") +
+  labs(
+    title = "Total de Disciplinas Ministráveis por Itinerário e Tipo de Habilitação",
+    x = "Itinerário Técnico",
+    y = "Total de Disciplinas",
+    fill = "Licenciatura"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+A análise dos gráficos “Top Mais” e “Top Menos” dos itinerários técnicos do ensino médio estadual e a “Proporção de Disciplinas Ministráveis por Tipo de Habilitação” indica uma presença consistentemente baixa de cursos com habilitação em licenciatura. Em todos os itinerários, a proporção de cursos de licenciatura é inferior a 20%. Isso contrasta com a exigência legal de formação por licenciatura para atuação na Formação Geral Básica (FGB), prevista na Lei nº 9.394/1996 (LDB), art. 62, enquanto os itinerários são mais flexíveis, conforme a Lei nº 13.415/2017, que admitem profissionais com outras formações, a aprtir da comprovação do "notório saber".
+
+Apesar da baixa proporção de licenciaturas, os gráficos de “Top Mais” e “Top Menos” mostram que a diferença entre cursos com e sem essa habilitação não é tão grande. Mas esses resultados podem ser explicados pelos dados do Censo da Educação Superior 2023 (Brasil. Inep, 2024a), segundo os quais os ingressantes em cursos de licenciatura representam apenas 16,6% do total, enquanto os de bacharelado somam 53,2% e os de cursos tecnológicos, 29,5%. Ou seja, não há tanta dispariedade entre os gráficos de "Top Mais" e "Top Menos" no quesito da licenciatura por esses cursos já serem minoritários, ainda assimm temos uma proporção muito baixa da presença de licenciatura nos itinerários técnicos, considerando que a licenciatura é obrigatória para a FGB.
+
+------------------------------------------------------------------------
+
+REFERÊNCIAS:
+
+BRASIL. Ministério da Educação. Instituto Nacional de Estudos e Pesquisas Educacionais Anísio Teixeira. *Censo da Educação Superior 2023: resumo técnico*. Brasília: Inep, 2024. Disponível em: <https://www.gov.br/inep/pt-br/assuntos/noticias/educacao-superior/censo-da-educacao-superior-2023.> Acesso em: 2 jun. 2025.
+
+BRASIL. Lei nº 9.394, de 20 de dezembro de 1996. *Estabelece as diretrizes e bases da educação nacional*. Diário Oficial da União: seção 1, Brasília, DF, ano 134, n. 248, p. 27833, 23 dez. 1996. Disponível em: <https://www.planalto.gov.br/ccivil_03/leis/l9394.htm.> Acesso em: 2 jun. 2025.
+
+BRASIL. Lei nº 13.415, de 16 de fevereiro de 2017. *Altera as Leis nºs 9.394, de 20 de dezembro de 1996, e 11.494, de 20 de junho de 2007, estabelece as diretrizes e bases da educação nacional e institui a política de fomento à implementação de escolas de ensino médio em tempo integral*. Diário Oficial da União: seção 1, Brasília, DF, ano 154, n. 33, p. 1, 17 fev. 2017. Disponível em: <https://www.planalto.gov.br/ccivil_03/_ato2015-2018/2017/lei/l13415.htm.> Acesso em: 2 jun. 2025.
+
+SÃO PAULO (Estado). Secretaria da Educação. *Resolução SEDUC nº 93, de 7 de novembro de 2024*. Dispõe sobre a gestão de pessoas dos integrantes do Quadro do Magistério nas escolas estaduais do Programa Ensino Integral – PEI e dá providências correlatas. Diário Oficial do Estado de São Paulo: Executivo, São Paulo, SP, ano 134, n. 212, p. 16, 8 nov. 2024. Disponível em: <https://cgd.cps.sp.gov.br/cgd_atos_normativos/seduc-93/.> Acesso em: 2 jun. 2025.
