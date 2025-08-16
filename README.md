@@ -10,6 +10,10 @@ A análise foi feita a partir dos itinerários técnicos da **E.E. Professor San
 
 ## Estrutura
 - `anexoXseduc.Rmd`: arquivo principal em R Markdown contendo a análise.
+- `tabela_administracao.xlsx`: arquivo com os componentes curriculares do itinerário técnico de Administração.
+- `tabela_ciencia_de_dados.xlsx`: arquivo com os componentes curriculares do itinerário técnico de Ciência de Dados.
+- `tabela_desenvolvimento_sistemas.xlsx`: arquivo com os componentes curriculares do itinerário técnico de Desenvolvimento de Sistemas.
+- `tabela_vendas.xlsx`: arquivo com os componentes curriculares do itinerário técnico de Vendas.
 
 ## Metodologia
 - Conversão do PDF do Anexo X para **Excel (.xlsx)** usando **Google Colab** e **Gemini AI**.  
